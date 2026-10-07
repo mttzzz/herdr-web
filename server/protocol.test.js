@@ -130,11 +130,16 @@ function opsOf(frame) {
   return { jsonLen, ops: JSON.parse(Buffer.from(frame.subarray(5, 5 + jsonLen)).toString("utf8")).ops };
 }
 
+/** Every op the page got, in order: herdr's writes reach the server in reads of any size, so
+ * one image's transmit and placement may arrive in separate frames. */
+const allOps = (frames) => frames.filter((f) => f[0] === 0x01).flatMap((f) => opsOf(f).ops);
+const placed = (fs) => tagged(fs) && allOps(fs).some((o) => o.t === "place");
+
 const health = async () => (await fetch(`http://127.0.0.1:${PORT}/health`)).json();
 
 test("a v=3 page gets a URL instead of pixels, and the URL serves them as PNG", async () => {
   let during;
-  const frames = await collect("cols=80&rows=24&v=3", tagged, async () => {
+  const frames = await collect("cols=80&rows=24&v=3", placed, async () => {
     during = await health();
   });
   expect(during.clients).toBe(1);
@@ -144,9 +149,9 @@ test("a v=3 page gets a URL instead of pixels, and the URL serves them as PNG", 
   expect(term).toContain("hello-from-pane");
   expect(term).not.toContain("\x1b_G"); /* not one APC byte reaches xterm.js */
 
-  const opsFrame = frames.find((f) => f[0] === 0x01);
-  const { jsonLen, ops } = opsOf(opsFrame);
-  expect(opsFrame.length).toBe(5 + jsonLen); /* nor one pixel byte the WebSocket */
+  /* nor one pixel byte the WebSocket */
+  for (const f of frames.filter((f) => f[0] === 0x01)) expect(f.length).toBe(5 + opsOf(f).jsonLen);
+  const ops = allOps(frames);
   const img = ops.find((o) => o.t === "img");
   expect(img).toMatchObject({ fmt: "png", w: 4, h: 4, len: 0, url: `/img/${img.hash}` });
   expect(ops.find((o) => o.t === "ref")).toEqual({ t: "ref", id: IMG_ID, src: img.id });
@@ -165,7 +170,7 @@ test("a v=3 page gets a URL instead of pixels, and the URL serves them as PNG", 
 
 test("a v=2 page gets the pixels as PNG inside the frame", async () => {
   let during;
-  const frames = await collect("cols=80&rows=24&v=2", tagged, async () => {
+  const frames = await collect("cols=80&rows=24&v=2", placed, async () => {
     during = await health();
   });
   expect(during.legacyClients).toBe(1); /* the tab runs a bundle from before v3 */
@@ -175,8 +180,9 @@ test("a v=2 page gets the pixels as PNG inside the frame", async () => {
   expect(term).toContain("\x1b[5;3H"); /* positioning stays, the page needs it */
   expect(term).not.toContain("\x1b_G");
 
-  const opsFrame = frames.find((f) => f[0] === 0x01);
-  const { jsonLen, ops } = opsOf(opsFrame);
+  const ops = allOps(frames);
+  const opsFrame = frames.find((f) => f[0] === 0x01 && opsOf(f).ops.some((o) => o.t === "img"));
+  const { jsonLen } = opsOf(opsFrame);
   const img = ops.find((o) => o.t === "img");
   const ref = ops.find((o) => o.t === "ref");
   const place = ops.find((o) => o.t === "place");
@@ -355,10 +361,12 @@ test("a page that falls behind skips to the screen as it is now, then gets the f
   page.send({ t: "ack", n: termBytes(page.frames) }); /* this page acks: flow control on */
 
   /* far more than the page may leave unparsed (16 KB here), then a line */
-  writeFileSync(join(dir, `say-${pid}`), "x".repeat(256 * 1024) + "\nafter-the-flood;");
+  writeFileSync(join(dir, `say-${pid}`), "x".repeat(1024 * 1024) + "\nafter-the-flood;");
   await Bun.sleep(1000);
   const parsed = termBytes(page.frames);
-  expect(parsed).toBeLessThan(128 * 1024); /* frames stopped while the page had not acked them */
+  /* frames stopped while the page had not acked them: it got a small part of the flood (one
+   * PTY read may come as a single frame of 100+ KB, so where they stop is not exact) */
+  expect(parsed).toBeLessThan(512 * 1024);
   expect(page.text()).not.toContain("after-the-flood;");
 
   page.send({ t: "ack", n: parsed }); /* caught up */
