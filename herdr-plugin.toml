@@ -1,0 +1,40 @@
+id = "herdr-web"
+name = "Web mirror"
+version = "1.0.0"
+min_herdr_version = "0.7.5"
+description = "Use herdr from a browser on your phone, tablet or another computer: a 1:1 mirror of the herdr TUI with images, paste and file upload"
+platforms = ["linux", "macos"]
+
+# Everything runs through scripts/web-ctl.sh so the same entry point works from a
+# herdr action, a keybinding, or a plain shell. Herdr injects HERDR_BIN_PATH,
+# HERDR_PLUGIN_STATE_DIR, HERDR_PLUGIN_CONFIG_DIR and HERDR_PLUGIN_CONTEXT_JSON.
+
+[[build]]
+command = ["bun", "install", "--frozen-lockfile"]
+
+[[startup]]
+command = ["bash", "scripts/web-ctl.sh", "start"]
+
+[[actions]]
+id = "open"
+title = "Web: open browser mirror"
+contexts = ["workspace"]
+command = ["bash", "scripts/web-ctl.sh", "open"]
+
+[[actions]]
+id = "start"
+title = "Web: start server"
+contexts = ["workspace"]
+command = ["bash", "scripts/web-ctl.sh", "start"]
+
+[[actions]]
+id = "stop"
+title = "Web: stop server"
+contexts = ["workspace"]
+command = ["bash", "scripts/web-ctl.sh", "stop"]
+
+[[actions]]
+id = "status"
+title = "Web: server status"
+contexts = ["workspace"]
+command = ["bash", "scripts/web-ctl.sh", "status"]

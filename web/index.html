@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>herdr</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+  <meta name="theme-color" content="#0d1117" />
+  <link rel="icon" type="image/png" sizes="32x32" href="/icons/favicon.png" />
+  <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
+  <meta name="apple-mobile-web-app-title" content="herdr" />
+  <link rel="stylesheet" href="/vendor/xterm.css" />
+  <style>
+    @font-face {
+      font-family: "JetBrainsMono Nerd Web";
+      src: url(/fonts/JetBrainsMonoNFM-Regular.woff2) format("woff2");
+      font-weight: 400;
+      font-style: normal;
+      font-display: block;
+    }
+    @font-face {
+      font-family: "JetBrainsMono Nerd Web";
+      src: url(/fonts/JetBrainsMonoNFM-Bold.woff2) format("woff2");
+      font-weight: 700;
+      font-style: normal;
+      font-display: block;
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body {
+      height: 100%;
+      background: #0d1117;
+      overflow: hidden;
+      overscroll-behavior: none;
+    }
+    #wrap {
+      display: flex;
+      flex-direction: column;
+      height: 100dvh;
+      width: 100vw;
+    }
+    #term {
+      flex: 1;
+      min-height: 0;
+      padding: 2px 0 0 2px;
+      touch-action: none; /* drags become synthetic wheel reports, not browser pans */
+      -webkit-touch-callout: none; /* long press is our right click, not iOS's callout */
+    }
+    #term { position: relative; }
+    #term .xterm-screen { position: relative; }
+    /* The image overlay is one canvas sized to the screen element; placements are drawn
+       into it, so there are no per-image DOM nodes and no blob URLs. */
+    #kitty-canvas { position: absolute; inset: 0; pointer-events: none; z-index: 2; }
+    #term .xterm { height: 100%; }
+    /* scrollback is 0 (herdr scrolls itself) — the viewport scrollbar is dead weight,
+       and Windows browsers render it as a full-height classic bar */
+    #term .xterm-viewport {
+      overflow-y: hidden !important;
+      scrollbar-width: none;
+    }
+    #term .xterm-viewport::-webkit-scrollbar { display: none; }
+    #bar {
+      display: flex;
+      gap: 4px;
+      padding: 4px 6px;
+      background: #161b22;
+      border-top: 1px solid #21262d;
+      user-select: none;
+      -webkit-user-select: none;
+      touch-action: manipulation;
+    }
+    #bar button {
+      flex: 1;
+      min-width: 0;
+      padding: 7px 2px;
+      font: 600 12px/1 "JetBrainsMono Nerd Web", monospace;
+      color: #c9d1d9;
+      background: #21262d;
+      border: 1px solid #30363d;
+      border-radius: 6px;
+      cursor: pointer;
+      -webkit-tap-highlight-color: transparent;
+    }
+    #bar button:active { background: #30363d; }
+    #input-bar {
+      display: flex;
+      gap: 6px;
+      align-items: flex-end;
+      padding: 6px 6px calc(6px + env(safe-area-inset-bottom)) 6px;
+      background: #161b22;
+      border-top: 1px solid #21262d;
+    }
+    #input-bar button {
+      flex: 0 0 auto;
+      width: 38px;
+      padding: 9px 0;
+      font: 600 14px/1 "JetBrainsMono Nerd Web", monospace;
+      color: #c9d1d9;
+      background: #21262d;
+      border: 1px solid #30363d;
+      border-radius: 6px;
+      cursor: pointer;
+      -webkit-tap-highlight-color: transparent;
+    }
+    #input-bar button:active { background: #30363d; }
+    #ibox {
+      flex: 1;
+      min-width: 0;
+      height: 34px;
+      max-height: 120px;
+      padding: 8px 10px;
+      font: 400 16px/1.2 "JetBrainsMono Nerd Web", monospace; /* >=16px stops iOS zoom-on-focus */
+      color: #c9d1d9;
+      background: #0d1117;
+      border: 1px solid #30363d;
+      border-radius: 6px;
+      outline: none;
+      resize: none;
+      overflow-y: auto;
+    }
+    #ibox:focus { border-color: #1f6feb; }
+    #ibox { scrollbar-width: none; }
+    #ibox::-webkit-scrollbar { display: none; }
+    #overlay {
+      position: fixed;
+      inset: 0;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      background: rgba(13, 17, 23, 0.82);
+      color: #c9d1d9;
+      font: 500 15px/1.6 "JetBrainsMono Nerd Web", monospace;
+      text-align: center;
+      cursor: pointer;
+      z-index: 10;
+    }
+    #overlay.show { display: flex; }
+  </style>
+</head>
+<body>
+  <div id="wrap">
+    <div id="term"></div>
+    <div id="bar">
+      <button data-seq="\x1b">Esc</button>
+      <button data-seq="\t">Tab</button>
+      <button data-seq="\x02" data-prefix>C-b</button>
+      <button data-seq="\r">⏎</button>
+      <button data-seq="\x1b[D">←</button>
+      <button data-seq="\x1b[B">↓</button>
+      <button data-seq="\x1b[A">↑</button>
+      <button data-seq="\x1b[C">→</button>
+      <button id="font-dec">A−</button>
+      <button id="font-inc">A+</button>
+    </div>
+    <div id="input-bar">
+      <button id="file-btn" aria-label="attach file">&#xf0c6;</button>
+      <textarea id="ibox" rows="1" placeholder="text / paste / files &#8594; composer" autocomplete="off" autocapitalize="off" spellcheck="false"></textarea>
+      <button id="send-btn" aria-label="send to composer">&#xf1d8;</button>
+      <input type="file" id="file-input" multiple hidden />
+    </div>
+  </div>
+  <div id="overlay"><div id="overlay-msg">disconnected — tap to reconnect</div></div>
+  <script src="/vendor/xterm.js"></script>
+  <script src="/vendor/addon-fit.js"></script>
+  <script src="/vendor/addon-webgl.js"></script>
+  <script src="/vendor/addon-clipboard.js"></script>
+  <script src="/vendor/addon-unicode11.js"></script>
+  <script src="/vendor/addon-web-links.js"></script>
+  <script src="/kitty-view.js"></script>
+  <script src="/app.js"></script>
+</body>
+</html>

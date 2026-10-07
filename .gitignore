@@ -1,0 +1,5 @@
+node_modules/
+.tmp/
+*.log
+# local overrides when running server.ts by hand; the plugin reads its .env from the config dir
+.env
